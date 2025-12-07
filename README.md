@@ -83,10 +83,28 @@ Run the main pipeline interactively:
 python mini_sora.py
 ```
 
+### Input during run
 You’ll be prompted to:
 	1.	Choose an interpolation method (RIFE / FILM / none).
 	2.	Select audio option: Ambient / Music / Auto Voice-over / None.
 	3.	Optionally enter voice-over text and language code.
+
+```bash
+Choose interpolation method (RIFE / FILM / none): none
+Audio options:
+  1 = Ambient
+  2 = Music
+  3 = Auto Voice-over (gTTS)
+  0 = None
+Select audio option: 3
+Enter your voice-over text (or press Enter for default): A peaceful morning by the lake.
+Enter voice language code (default 'en'): en
+```
+
+### Output
+✅ Voice-over saved: audio/voice.wav
+✅ Audio-integrated video ready: outputs/final_with_voice.mp4
+🎬 Done! Final video saved as: outputs/final_with_voice.mp4
 
 The final video is saved under:
 ```outputs/final_with_audio.mp4```
