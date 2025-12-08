@@ -40,6 +40,7 @@ git clone https://github.com/adills/mini_sora.git
 cd mini_sora
 python3 -m venv waver_env
 source waver_env/bin/activate
+# NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install diffusers transformers accelerate pillow imageio[ffmpeg] gTTS
 brew install ffmpeg
@@ -59,7 +60,7 @@ cd mini_sora
 pip install pipenv
 pipenv --python 3.12
 pipenv shell
-
+# NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pipenv install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pipenv install diffusers transformers accelerate pillow imageio[ffmpeg] gTTS
 brew install ffmpeg
