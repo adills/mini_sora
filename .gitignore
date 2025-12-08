@@ -28,13 +28,16 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+models/
 
 # === Outputs ===
 outputs/*.mp4    # ignore generated video files
+output/
 !outputs/.gitkeep   # optional empty placeholder if you track folder
 !outputs/gitkeep.txt
 outputs/test_end_to_end_with_voice0/*
 outputs/test_end_to_end_voicecurrent/*
+outputs/*.png
 tests/test_end_to_end_with_voice0/*
 tests/test_end_to_end_voicecurrent/*
 
