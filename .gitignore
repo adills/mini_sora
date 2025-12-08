@@ -30,7 +30,7 @@ share/python-wheels/
 MANIFEST
 
 # === Outputs ===
-outputs/
+outputs/*.*
 !outputs/.gitkeep   # optional empty placeholder if you track folder
 
 # === Audio Files ===
