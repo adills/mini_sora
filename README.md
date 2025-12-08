@@ -53,7 +53,7 @@ pip install film
 **Pipenv**
 ```bash
 pip install pipenv
-pipenv --python 3.10
+pipenv --python 3.12
 pipenv shell
 
 pipenv install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
