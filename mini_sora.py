@@ -11,11 +11,15 @@ except ImportError:
     DiffusionPipeline = None
 from PIL import Image
 from gtts import gTTS
-import imageio, subprocess, os, inspect
+import imageio, subprocess, os, inspect, sys
 import numpy as np
 
 
-def _get_device():
+def _get_device(stage=None):
+    stage_key = f"MINI_SORA_{stage.upper()}_DEVICE" if stage else None
+    stage_override = os.environ.get(stage_key) if stage_key else None
+    if stage_override:
+        return stage_override
     override = os.environ.get("MINI_SORA_DEVICE")
     if override:
         return override
@@ -144,6 +148,35 @@ def _video_has_audio(path):
         return False
 
 
+def _maybe_align_stage_devices(default_device):
+    """
+    If only one of the stage-specific device envs is set (and differs from default),
+    ask whether to apply the same or default device to the other stage.
+    Interactive only; skipped in test mode or non-tty.
+    """
+    if _is_test_mode() or not sys.stdin.isatty():
+        return
+
+    img_dev = os.environ.get("MINI_SORA_IMAGE_DEVICE")
+    vid_dev = os.environ.get("MINI_SORA_VIDEO_DEVICE")
+
+    def _prompt_set(missing_key, source_val):
+        choice = input(
+            f"You set {missing_key.replace('VIDEO', 'IMAGE').replace('IMAGE', 'VIDEO')}={source_val} "
+            f"and left {missing_key} unset (default {default_device}). "
+            f"Use the same device for {missing_key.split('_')[-2].lower()}? [y/N] "
+        ).strip().lower()
+        if choice.startswith("y"):
+            os.environ[missing_key] = source_val
+        else:
+            os.environ[missing_key] = default_device
+
+    if img_dev and not vid_dev and img_dev != default_device:
+        _prompt_set("MINI_SORA_VIDEO_DEVICE", img_dev)
+    elif vid_dev and not img_dev and vid_dev != default_device:
+        _prompt_set("MINI_SORA_IMAGE_DEVICE", vid_dev)
+
+
 def _is_test_mode():
     return _env_flag("MINI_SORA_TEST_MODE")
 
@@ -163,7 +196,7 @@ def generate_image(prompt, output_path="frame0.png"):
             "Install the dependencies listed in Pipfile/README."
         )
     print("🎨 Generating initial image...")
-    device = _get_device()
+    device = _get_device(stage="image")
     dtype = _get_dtype(device)
     model_id = os.environ.get("MINI_SORA_SD_MODEL", "runwayml/stable-diffusion-v1-5")
     local_only = _env_flag("HF_HUB_OFFLINE") or _env_flag("MINI_SORA_LOCAL_ONLY")
@@ -201,7 +234,7 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
             "Install the dependencies listed in Pipfile/README."
         )
     print("🎥 Generating motion video...")
-    device = _get_device()
+    device = _get_device(stage="video")
     dtype = _get_dtype(device)
     # Prefer new env var, but keep backward compatibility with the old name
     model_id = (
@@ -337,11 +370,17 @@ def refine_video(input_video, output_video="refined.mp4"):
         with open(output_video, "wb"):
             pass
         return output_video
+
+    # Allow overriding target dimensions for portrait/landscape output
+    target_w = os.environ.get("MINI_SORA_REFINE_WIDTH", "1920")
+    target_h = os.environ.get("MINI_SORA_REFINE_HEIGHT", "1080")
+    scale_filter = f"scale={target_w}:{target_h}:flags=lanczos"
+
     cmd = [
         "ffmpeg", "-y", "-i", input_video,
-        "-vf", "scale=1920:1080:flags=lanczos,"
+        "-vf", f"{scale_filter},"
                "eq=contrast=1.05:brightness=0.02:saturation=1.1",
-        "-c:v", "libx264", "-crf", "18", "-preset", "medium",
+        "-c:v", "hevc_videotoolbox", "-q:v", "50", "-pix_fmt", "yuv420p", #"-preset", "medium",
         output_video
     ]
     subprocess.run(cmd, check=True)
@@ -400,6 +439,8 @@ def generate_voiceover(text, lang="en", output_file="audio/voice.wav"):
 
 
 if __name__ == "__main__":
+    default_dev = _get_device()
+    _maybe_align_stage_devices(default_dev)
     os.makedirs("outputs", exist_ok=True)
     text_prompt = (
         "A serene woman standing ankle-deep in a calm lake at sunrise, "

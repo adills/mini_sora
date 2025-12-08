@@ -136,7 +136,7 @@ Note: Stable Video Diffusion is image-conditioned, so the “motion prompt” te
 - To force CPU instead of MPS/GPU (very slow, but safer for memory): `MINI_SORA_DEVICE=cpu`.
 - To bypass the Stable Diffusion safety checker (e.g., if you keep getting black images), set `MINI_SORA_DISABLE_SAFETY=1`.
 
-**Example Mac MPS low memory CLI**
+**Example Mac MPS minimum low memory CLI**
 ```bash
 MINI_SORA_DEVICE=mps \
 MINI_SORA_LOW_MEMORY=1 \
@@ -146,6 +146,20 @@ MINI_SORA_SVD_STEPS=8 \
 MINI_SORA_SVD_WIDTH=320 \
 MINI_SORA_SVD_HEIGHT=180 \
 MINI_SORA_SVD_DECODE_CHUNK=1 \
+python3 mini_sora.py
+```
+
+**Example of a mixed MPS and CPU process**
+```bash
+MINI_SORA_IMAGE_DEVICE=mps \
+MINI_SORA_VIDEO_DEVICE=cpu \
+MINI_SORA_LOW_MEMORY=1 \
+MINI_SORA_DISABLE_SAFETY=1 \
+MINI_SORA_SVD_FRAMES=8 \
+MINI_SORA_SVD_STEPS=16 \
+MINI_SORA_SVD_WIDTH=256 \
+MINI_SORA_SVD_HEIGHT=448 \
+MINI_SORA_SVD_DECODE_CHUNK=3 \
 python3 mini_sora.py
 ```
 
