@@ -33,8 +33,10 @@ MANIFEST
 outputs/*.mp4    # ignore generated video files
 !outputs/.gitkeep   # optional empty placeholder if you track folder
 !outputs/gitkeep.txt
-outputs/test_end_to_end*/
-tests/test_end_to_end*/
+outputs/test_end_to_end_with_voice0/*
+outputs/test_end_to_end_voicecurrent/*
+tests/test_end_to_end_with_voice0/*
+tests/test_end_to_end_voicecurrent/*
 
 # === Audio Files ===
 # Ignore generated voiceovers and temporary audio
