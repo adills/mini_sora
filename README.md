@@ -43,6 +43,7 @@ source waver_env/bin/activate
 # NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install diffusers transformers accelerate pillow imageio gTTS # imageio for ffmpeg
+pip install pytest
 brew install ffmpeg
 
 # RIFE
@@ -63,6 +64,7 @@ pipenv shell
 # NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pipenv install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pipenv install diffusers transformers accelerate pillow imageio gTTS # imageio for ffmpeg
+pipenv install --dev pytest
 brew install ffmpeg
 
 # RIFE
