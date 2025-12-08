@@ -134,12 +134,14 @@ Note: Stable Video Diffusion is image-conditioned, so the “motion prompt” te
 - If you hit out-of-memory or large buffer errors, try `MINI_SORA_LOW_MEMORY=1` (uses smaller resolution/frames) or override `MINI_SORA_SVD_FRAMES=6 MINI_SORA_SVD_WIDTH=512 MINI_SORA_SVD_HEIGHT=288`.
 - Lower decode chunking if needed: `MINI_SORA_SVD_DECODE_CHUNK=3`.
 - To force CPU instead of MPS/GPU (very slow, but safer for memory): `MINI_SORA_DEVICE=cpu`.
+- To bypass the Stable Diffusion safety checker (e.g., if you keep getting black images), set `MINI_SORA_DISABLE_SAFETY=1`.
 
 **Example Mac MPS low memory CLI**
 ```bash
 MINI_SORA_DEVICE=mps \
 MINI_SORA_LOW_MEMORY=1 \
-MINI_SORA_SVD_FRAMES=2 \
+MINI_SORA_DISABLE_SAFETY=1 \
+MINI_SORA_SVD_FRAMES=4 \
 MINI_SORA_SVD_STEPS=8 \
 MINI_SORA_SVD_WIDTH=320 \
 MINI_SORA_SVD_HEIGHT=180 \

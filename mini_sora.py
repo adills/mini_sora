@@ -12,6 +12,7 @@ except ImportError:
 from PIL import Image
 from gtts import gTTS
 import imageio, subprocess, os, inspect
+import numpy as np
 
 
 def _get_device():
@@ -54,6 +55,95 @@ def _env_float(name, default):
         return default
 
 
+def _to_hwc_uint8(frame):
+    """
+    Normalize a single frame to HWC uint8 for imageio/ffmpeg.
+    Handles torch tensors (TCHW/CHW), numpy arrays, and PIL images.
+    """
+    if torch is not None and isinstance(frame, torch.Tensor):
+        f = frame.detach().cpu()
+        if f.ndim == 4:
+            # Take first batch dim if present
+            f = f[0]
+        if f.ndim == 3 and f.shape[0] in (1, 3, 4):
+            f = f.permute(1, 2, 0)
+        f = f.numpy()
+    elif isinstance(frame, np.ndarray):
+        f = frame
+        if f.ndim == 3 and f.shape[0] in (1, 3, 4) and f.shape[0] != f.shape[-1]:
+            f = np.transpose(f, (1, 2, 0))
+    else:
+        f = np.array(frame)
+        if f.ndim == 3 and f.shape[0] in (1, 3, 4) and f.shape[0] != f.shape[-1]:
+            f = np.transpose(f, (1, 2, 0))
+
+    if f.ndim == 2:
+        # Grayscale → RGB
+        f = np.stack([f] * 3, axis=-1)
+    f = np.clip(f, 0, 255)
+    if f.dtype != np.uint8:
+        # Assume input in [0,1] or float; scale if needed
+        if f.max() <= 1.0:
+            f = (f * 255.0)
+        f = f.astype(np.uint8)
+    return f
+
+
+def _normalize_frames(frames):
+    """
+    Ensure frames is a list of HWC uint8 arrays.
+    Supports torch tensors (TCHW / B T C H W), numpy arrays, or lists.
+    """
+    normalized = []
+
+    def _add(item):
+        # Convert torch tensors to numpy for easier handling
+        if torch is not None and isinstance(item, torch.Tensor):
+            item = item.detach().cpu().numpy()
+
+        if isinstance(item, np.ndarray):
+            # If batched/stacked frames, split them
+            if item.ndim >= 4 and item.shape[0] > 1:
+                for i in range(item.shape[0]):
+                    _add(item[i])
+                return
+            # If single frame with leading dim 1, squeeze it
+            if item.ndim >= 4 and item.shape[0] == 1:
+                item = np.squeeze(item, axis=0)
+            normalized.append(_to_hwc_uint8(item))
+            return
+
+        if isinstance(item, (list, tuple)):
+            for x in item:
+                _add(x)
+            return
+
+        # Fallback: convert to numpy and handle potential stacked frames
+        arr = np.array(item)
+        if arr.ndim >= 4 and arr.shape[0] > 1:
+            for i in range(arr.shape[0]):
+                _add(arr[i])
+            return
+        if arr.ndim >= 4 and arr.shape[0] == 1:
+            arr = np.squeeze(arr, axis=0)
+        normalized.append(_to_hwc_uint8(arr))
+
+    _add(frames)
+    return normalized
+
+
+def _video_has_audio(path):
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", path],
+            capture_output=True, text=True, check=True
+        )
+        return bool(res.stdout.strip())
+    except Exception:
+        return False
+
+
 def _is_test_mode():
     return _env_flag("MINI_SORA_TEST_MODE")
 
@@ -83,6 +173,8 @@ def generate_image(prompt, output_path="frame0.png"):
             torch_dtype=dtype,
             local_files_only=local_only,
         )
+        if _env_flag("MINI_SORA_DISABLE_SAFETY") and hasattr(pipe_img, "safety_checker"):
+            pipe_img.safety_checker = None
     except OSError as exc:
         raise RuntimeError(
             f"Unable to load image model '{model_id}'. "
@@ -202,6 +294,15 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
         frames = result.get("frames")
     if frames is None:
         frames = result
+    try:
+        frames = _normalize_frames(frames)
+    except Exception as exc:
+        print(f"⚠️ Failed to normalize frames: type={type(frames)}, err={exc}")
+        raise
+    # Debug: print basic frame info to help diagnose channel/layout issues
+    if frames:
+        sample = frames[0]
+        print(f"ℹ️ Video frames normalized: count={len(frames)}, shape={getattr(sample, 'shape', None)}, dtype={getattr(sample, 'dtype', None)}")
     fps_to_save = getattr(result, "fps", None) or call_kwargs.get("fps", svd_fps)
     try:
         imageio.mimsave(output_video, frames, fps=fps_to_save)
@@ -264,14 +365,21 @@ def add_audio_to_video(video_path, audio_choice, output_path="final_with_audio.m
         else:
             print(f"⚠️ Audio file not found: {audio_choice}")
             return video_path
+    has_audio = _video_has_audio(video_path)
+    if has_audio:
+        filter_complex = "[1:a]volume=1.0[a1];[0:a][a1]amix=inputs=2:duration=shortest[a]"
+        map_audio = "[a]"
+    else:
+        # No audio in video; just apply volume to the external track
+        filter_complex = "[1:a]volume=1.0[a]"
+        map_audio = "[a]"
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
         "-stream_loop", "-1", "-i", resolved_audio,
         "-shortest",
-        "-filter_complex",
-        "[1:a]volume=1.0[a1];[0:a][a1]amix=inputs=2:duration=shortest[a]",
-        "-map", "0:v", "-map", "[a]",
+        "-filter_complex", filter_complex,
+        "-map", "0:v", "-map", map_audio,
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         output_path
     ]

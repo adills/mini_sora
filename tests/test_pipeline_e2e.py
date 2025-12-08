@@ -15,6 +15,15 @@ from mini_sora import (
 def test_end_to_end_with_voice(tmp_path):
     # Use lightweight stubs instead of downloading large models/audio during tests
     os.environ["MINI_SORA_TEST_MODE"] = "1"
+    # Mirror the low-memory env used in manual runs (harmless in test mode stubs)
+    os.environ.setdefault("MINI_SORA_DEVICE", "mps")
+    os.environ.setdefault("MINI_SORA_LOW_MEMORY", "1")
+    os.environ.setdefault("MINI_SORA_DISABLE_SAFETY", "1")
+    os.environ.setdefault("MINI_SORA_SVD_FRAMES", "4")
+    os.environ.setdefault("MINI_SORA_SVD_STEPS", "8")
+    os.environ.setdefault("MINI_SORA_SVD_WIDTH", "320")
+    os.environ.setdefault("MINI_SORA_SVD_HEIGHT", "180")
+    os.environ.setdefault("MINI_SORA_SVD_DECODE_CHUNK", "1")
     """
     Full pipeline test:
       - text→image
