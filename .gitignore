@@ -30,7 +30,7 @@ share/python-wheels/
 MANIFEST
 
 # === Outputs ===
-# outputs/*.mp4    # ignore generated video files
+outputs/*.mp4    # ignore generated video files
 # !outputs/.gitkeep   # optional empty placeholder if you track folder
 
 # === Audio Files ===
