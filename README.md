@@ -12,7 +12,7 @@
 It produces short cinematic clips by chaining together:
 
 1. **Text → Image** (Stable Diffusion)  
-2. **Image → Video** (Waver I2V)  
+2. **Image → Video** (Stable Video Diffusion)  
 3. **Frame Interpolation** (RIFE or FILM)  
 4. **Video Refinement** (ffmpeg color grading + upscaling)  
 5. **Audio Integration** (ambient, music, or auto-generated voice-over via gTTS)
@@ -42,7 +42,7 @@ python3 -m venv waver_env
 source waver_env/bin/activate
 # NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install diffusers transformers accelerate pillow imageio gTTS # imageio for ffmpeg
+pip install diffusers transformers accelerate pillow "imageio[ffmpeg]" gTTS # imageio-ffmpeg for mp4 writing
 pip install pytest
 brew install ffmpeg
 
@@ -63,7 +63,7 @@ pipenv --python 3.12
 pipenv shell
 # NOTE: On Mac with MPS, you don't need to specify the index-url in the next line
 pipenv install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pipenv install diffusers transformers accelerate pillow imageio gTTS # imageio for ffmpeg
+pipenv install diffusers transformers accelerate pillow "imageio[ffmpeg]" gTTS # imageio-ffmpeg for mp4 writing
 pipenv install --dev pytest
 brew install ffmpeg
 
@@ -82,6 +82,14 @@ cd rife && pip install -r requirements.txt
 
 #### FILM
 pip install film
+
+## 📦 Model downloads / offline use
+- First run will download `runwayml/stable-diffusion-v1-5` (text→image) and `stabilityai/stable-video-diffusion-img2vid-xt-1-1` (image→video). If either is gated, run `hf auth login` (uses a token from https://huggingface.co/settings/tokens) and accept the license.
+- To run fully offline, download once and point the env vars to the local folders:
+  - `hf download stabilityai/stable-video-diffusion-img2vid-xt-1-1 --local-dir ./models/svd`
+  - `export MINI_SORA_VIDEO_MODEL=./models/svd` (old name `MINI_SORA_WAVER_MODEL` still works)
+  - (optional) `export MINI_SORA_SD_MODEL=./models/stable-diffusion-v1-5`
+- For a quick smoke test without downloads, set `MINI_SORA_TEST_MODE=1` to stub out the heavy stages.
 
 ## Usage
 Run tests:
@@ -118,6 +126,25 @@ Audio options:
 Select audio option: 3
 Enter your voice-over text (or press Enter for default): A peaceful morning by the lake.
 Enter voice language code (default 'en'): en
+```
+
+Note: Stable Video Diffusion is image-conditioned, so the “motion prompt” text is ignored in the current default video model.
+
+### Memory tips
+- If you hit out-of-memory or large buffer errors, try `MINI_SORA_LOW_MEMORY=1` (uses smaller resolution/frames) or override `MINI_SORA_SVD_FRAMES=6 MINI_SORA_SVD_WIDTH=512 MINI_SORA_SVD_HEIGHT=288`.
+- Lower decode chunking if needed: `MINI_SORA_SVD_DECODE_CHUNK=3`.
+- To force CPU instead of MPS/GPU (very slow, but safer for memory): `MINI_SORA_DEVICE=cpu`.
+
+**Example Mac MPS low memory CLI**
+```bash
+MINI_SORA_DEVICE=mps \
+MINI_SORA_LOW_MEMORY=1 \
+MINI_SORA_SVD_FRAMES=2 \
+MINI_SORA_SVD_STEPS=8 \
+MINI_SORA_SVD_WIDTH=320 \
+MINI_SORA_SVD_HEIGHT=180 \
+MINI_SORA_SVD_DECODE_CHUNK=1 \
+python3 mini_sora.py
 ```
 
 ### Output
@@ -182,4 +209,3 @@ mini-sora/
 │   └── voice.wav (optional)
 └── MINI_SORA_PIPELINE.md       # this documentation
 ```
-

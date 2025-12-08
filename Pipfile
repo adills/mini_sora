@@ -11,8 +11,8 @@ diffusers = "*"
 transformers = "*"
 accelerate = "*"
 pillow = "*"
-imageio = "*"
 gtts = "*"
+imageio = {extras = ["ffmpeg"], version = "*"}
 
 [dev-packages]
 pytest = "*"

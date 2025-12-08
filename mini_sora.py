@@ -11,10 +11,13 @@ except ImportError:
     DiffusionPipeline = None
 from PIL import Image
 from gtts import gTTS
-import imageio, subprocess, os
+import imageio, subprocess, os, inspect
 
 
 def _get_device():
+    override = os.environ.get("MINI_SORA_DEVICE")
+    if override:
+        return override
     if torch is None:
         return "cpu"
     if torch.backends.mps.is_available():
@@ -30,8 +33,29 @@ def _get_dtype(device):
     return torch.float16 if device in ("cuda", "mps") else torch.float32
 
 
+def _env_flag(name, default=False):
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def _is_test_mode():
-    return os.environ.get("MINI_SORA_TEST_MODE", "").lower() in {"1", "true", "yes", "on"}
+    return _env_flag("MINI_SORA_TEST_MODE")
 
 
 def _ensure_parent(path):
@@ -51,10 +75,20 @@ def generate_image(prompt, output_path="frame0.png"):
     print("🎨 Generating initial image...")
     device = _get_device()
     dtype = _get_dtype(device)
-    pipe_img = DiffusionPipeline.from_pretrained(
-        "runwayml/stable-diffusion-v1-5",
-        torch_dtype=dtype
-    )
+    model_id = os.environ.get("MINI_SORA_SD_MODEL", "runwayml/stable-diffusion-v1-5")
+    local_only = _env_flag("HF_HUB_OFFLINE") or _env_flag("MINI_SORA_LOCAL_ONLY")
+    try:
+        pipe_img = DiffusionPipeline.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            local_files_only=local_only,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"Unable to load image model '{model_id}'. "
+            "Download it once (huggingface-cli download) or set MINI_SORA_SD_MODEL to a local path. "
+            "Set MINI_SORA_TEST_MODE=1 for stubbed outputs."
+        ) from exc
     pipe_img.to(device)
     # Recommended if your computer has < 64 GB of RAM
     pipe_img.enable_attention_slicing()
@@ -77,17 +111,106 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
     print("🎥 Generating motion video...")
     device = _get_device()
     dtype = _get_dtype(device)
-    pipe_vid = DiffusionPipeline.from_pretrained(
-        "FoundationVision/Waver-I2V",
-        torch_dtype=dtype,
-        trust_remote_code=True
+    # Prefer new env var, but keep backward compatibility with the old name
+    model_id = (
+        os.environ.get("MINI_SORA_VIDEO_MODEL")
+        or os.environ.get("MINI_SORA_WAVER_MODEL")
+        or "stabilityai/stable-video-diffusion-img2vid-xt-1-1"
     )
+    local_only = _env_flag("HF_HUB_OFFLINE") or _env_flag("MINI_SORA_LOCAL_ONLY")
+    try:
+        pipe_vid = DiffusionPipeline.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            trust_remote_code=True,
+            local_files_only=local_only,
+            variant="fp16" if dtype == torch.float16 else None
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"Unable to load video model '{model_id}'. "
+            "If you are offline or the model requires auth, download once with "
+            "`hf download stabilityai/stable-video-diffusion-img2vid-xt-1-1 --local-dir ./models/svd` "
+            "and set MINI_SORA_VIDEO_MODEL=./models/svd. "
+            "Set MINI_SORA_TEST_MODE=1 for stubbed outputs."
+        ) from exc
     pipe_vid.to(device)
     pipe_vid.enable_attention_slicing()
-    init_image = Image.open(init_image_path).convert("RGB").resize((512, 512))
-    result = pipe_vid(image=init_image, prompt=prompt, num_frames=48,
-                      guidance_scale=8.0, motion_strength=0.7)
-    imageio.mimsave(output_video, result.frames, fps=24)
+    low_mem = _env_flag("MINI_SORA_LOW_MEMORY") or device == "cpu"
+    if low_mem:
+        print("⚠️ Low-memory video mode: reducing resolution/frames.")
+    width = _env_int("MINI_SORA_SVD_WIDTH", 1024 if not low_mem else 512)
+    height = _env_int("MINI_SORA_SVD_HEIGHT", 576 if not low_mem else 288)
+    init_image = Image.open(init_image_path).convert("RGB").resize((width, height))
+
+    # Lighten memory pressure when supported
+    if hasattr(pipe_vid, "enable_vae_slicing"):
+        pipe_vid.enable_vae_slicing()
+    if hasattr(pipe_vid, "enable_vae_tiling") and low_mem:
+        pipe_vid.enable_vae_tiling()
+    if hasattr(pipe_vid, "enable_model_cpu_offload") and low_mem and device != "cpu":
+        pipe_vid.enable_model_cpu_offload()
+
+    # Detect supported args for the loaded pipeline (SVD doesn't take `prompt`)
+    sig_params = set(inspect.signature(pipe_vid.__call__).parameters.keys())
+    call_kwargs = {"image": init_image}
+    if "prompt" in sig_params:
+        call_kwargs["prompt"] = prompt
+    else:
+        if prompt:
+            print("ℹ️ Video model ignores text prompts; motion is derived from the input image.")
+
+    # Default knobs for Stable Video Diffusion (SVD)
+    svd_frames = _env_int("MINI_SORA_SVD_FRAMES", 12 if not low_mem else 6)
+    svd_steps = _env_int("MINI_SORA_SVD_STEPS", 32 if not low_mem else 16)
+    svd_min_guidance = _env_float("MINI_SORA_SVD_MIN_GUIDE", 1.0)
+    svd_max_guidance = _env_float("MINI_SORA_SVD_MAX_GUIDE", 3.0)
+    svd_motion_bucket = _env_int("MINI_SORA_SVD_MOTION_BUCKET", 127)
+    svd_noise_aug = _env_float("MINI_SORA_SVD_NOISE_AUG", 0.02)
+    svd_decode_chunk = _env_int("MINI_SORA_SVD_DECODE_CHUNK", 6 if not low_mem else 3)
+    svd_fps = _env_int("MINI_SORA_SVD_FPS", 7 if not low_mem else 6)
+
+    # Backward-compatible knobs for Waver-style pipelines
+    waver_frames = int(os.environ.get("MINI_SORA_WAVER_FRAMES", 48))
+    waver_guidance = float(os.environ.get("MINI_SORA_WAVER_GUIDANCE", 8.0))
+    waver_motion = float(os.environ.get("MINI_SORA_WAVER_MOTION", 0.7))
+
+    def _maybe_set(name, value):
+        if name in sig_params and value is not None:
+            call_kwargs[name] = value
+
+    # Prefer SVD-style params; fall back to Waver-style if supported
+    _maybe_set("num_frames", svd_frames)
+    _maybe_set("num_inference_steps", svd_steps)
+    _maybe_set("min_guidance_scale", svd_min_guidance)
+    _maybe_set("max_guidance_scale", svd_max_guidance)
+    _maybe_set("motion_bucket_id", svd_motion_bucket)
+    _maybe_set("noise_aug_strength", svd_noise_aug)
+    _maybe_set("decode_chunk_size", svd_decode_chunk)
+    _maybe_set("fps", svd_fps)
+
+    _maybe_set("guidance_scale", waver_guidance)
+    _maybe_set("motion_strength", waver_motion)
+
+    # If the pipeline expects a different frame count (e.g., Waver), override
+    if "motion_strength" in sig_params and "num_frames" in sig_params:
+        call_kwargs["num_frames"] = waver_frames
+
+    result = pipe_vid(**call_kwargs)
+    frames = getattr(result, "frames", None) if result is not None else None
+    if frames is None and isinstance(result, dict):
+        frames = result.get("frames")
+    if frames is None:
+        frames = result
+    fps_to_save = getattr(result, "fps", None) or call_kwargs.get("fps", svd_fps)
+    try:
+        imageio.mimsave(output_video, frames, fps=fps_to_save)
+    except ValueError as exc:
+        raise RuntimeError(
+            "Failed to save video. Install ffmpeg support with "
+            "`pip install \"imageio[ffmpeg]\"` (or `pip install imageio-ffmpeg`) "
+            "and ensure system ffmpeg is available."
+        ) from exc
     return output_video
 
 
