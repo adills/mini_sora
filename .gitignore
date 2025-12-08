@@ -2,6 +2,9 @@
 __pycache__/
 *.py[codz]
 *$py.class
+*.py[cod]
+*.pyo
+*.pyd
 
 # C extensions
 *.so
@@ -25,6 +28,20 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# === Outputs ===
+outputs/
+!outputs/.gitkeep   # optional empty placeholder if you track folder
+
+# === Audio Files ===
+# Ignore generated voiceovers and temporary audio
+audio/*.wav
+audio/*.mp3
+
+# Keep curated demo/test audio files
+!audio/ambient.wav
+!audio/music.mp3
+!audio/voice.wav
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -50,6 +67,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+pytest_cache/
 
 # Translations
 *.mo
@@ -134,7 +152,7 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
+# === Virtualenvs / Build Artifacts ===
 .env
 .envrc
 .venv
@@ -205,3 +223,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# === macOS Files ===
+.DS_Store
+
+# === IDE / Editor ===
+.vscode/
+.idea/
