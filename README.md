@@ -82,6 +82,18 @@ cd rife && pip install -r requirements.txt
 pip install film
 
 ## Usage
+Run tests:
+```bash
+pytest -s tests/test_pipeline_e2e.py
+```
+The -s flag lets you see printed status lines such as:
+```bash
+🎨 Generating initial image...
+🎥 Generating motion video...
+✅ E2E voice-over test completed.
+Final output: /tmp/pytest-.../final_with_voice.mp4
+```
+
 Run the main pipeline interactively:
 
 ```bash
