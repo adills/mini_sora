@@ -73,12 +73,12 @@ cd rife && pip install -r requirements.txt
 pipenv install film
 ```
 
-Optional (for interpretation)
-# RIFE
+### Optional (for interpretation)
+#### RIFE
 git clone https://github.com/megvii-research/ECCV2022-RIFE rife
 cd rife && pip install -r requirements.txt
 
-# FILM
+#### FILM
 pip install film
 
 ## Usage
