@@ -36,6 +36,8 @@ It produces short cinematic clips by chaining together:
 Install via **venv** or **Pipenv**:
 
 ```bash
+git clone https://github.com/adills/mini_sora.git
+cd mini_sora
 python3 -m venv waver_env
 source waver_env/bin/activate
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -52,6 +54,8 @@ pip install film
 
 **Pipenv**
 ```bash
+git clone https://github.com/adills/mini_sora.git
+cd mini_sora
 pip install pipenv
 pipenv --python 3.12
 pipenv shell
