@@ -40,6 +40,7 @@ audio/*.mp3
 
 # Keep curated demo/test audio files
 !audio/test_ambient.wav
+!audio/test_ambient.mp3
 !audio/test_music.mp3
 !audio/test_voice.wav
 
