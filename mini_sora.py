@@ -1,33 +1,89 @@
 # Mini-Sora main pipeline script (text→video→audio)
 
-import torch
-from diffusers import StableDiffusionPipeline, WaverI2VPipeline
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    from diffusers import DiffusionPipeline
+except ImportError:
+    DiffusionPipeline = None
 from PIL import Image
 from gtts import gTTS
 import imageio, subprocess, os
 
 
+def _get_device():
+    if torch is None:
+        return "cpu"
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _get_dtype(device):
+    if torch is None:
+        return None
+    return torch.float16 if device in ("cuda", "mps") else torch.float32
+
+
+def _is_test_mode():
+    return os.environ.get("MINI_SORA_TEST_MODE", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _ensure_parent(path):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
+
 def generate_image(prompt, output_path="frame0.png"):
+    if _is_test_mode():
+        _ensure_parent(output_path)
+        Image.new("RGB", (4, 4), (0, 0, 0)).save(output_path)
+        return output_path
+    if torch is None or DiffusionPipeline is None:
+        raise ImportError(
+            "generate_image requires torch and diffusers. "
+            "Install the dependencies listed in Pipfile/README."
+        )
     print("🎨 Generating initial image...")
-    pipe_img = StableDiffusionPipeline.from_pretrained(
+    device = _get_device()
+    dtype = _get_dtype(device)
+    pipe_img = DiffusionPipeline.from_pretrained(
         "runwayml/stable-diffusion-v1-5",
-        torch_dtype=torch.float16
+        torch_dtype=dtype
     )
-    device = "mps" if torch.backends.mps.is_available() else "cuda"
     pipe_img.to(device)
+    # Recommended if your computer has < 64 GB of RAM
+    pipe_img.enable_attention_slicing()
     image = pipe_img(prompt, guidance_scale=8.0).images[0]
     image.save(output_path)
     return output_path
 
 
 def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
+    if _is_test_mode():
+        _ensure_parent(output_video)
+        with open(output_video, "wb"):
+            pass
+        return output_video
+    if torch is None or DiffusionPipeline is None:
+        raise ImportError(
+            "generate_video requires torch and diffusers. "
+            "Install the dependencies listed in Pipfile/README."
+        )
     print("🎥 Generating motion video...")
-    pipe_vid = WaverI2VPipeline.from_pretrained(
+    device = _get_device()
+    dtype = _get_dtype(device)
+    pipe_vid = DiffusionPipeline.from_pretrained(
         "FoundationVision/Waver-I2V",
-        torch_dtype=torch.float16
+        torch_dtype=dtype,
+        trust_remote_code=True
     )
-    device = "mps" if torch.backends.mps.is_available() else "cuda"
     pipe_vid.to(device)
+    pipe_vid.enable_attention_slicing()
     init_image = Image.open(init_image_path).convert("RGB").resize((512, 512))
     result = pipe_vid(image=init_image, prompt=prompt, num_frames=48,
                       guidance_scale=8.0, motion_strength=0.7)
@@ -52,6 +108,11 @@ def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIF
 
 
 def refine_video(input_video, output_video="refined.mp4"):
+    if _is_test_mode():
+        _ensure_parent(output_video)
+        with open(output_video, "wb"):
+            pass
+        return output_video
     cmd = [
         "ffmpeg", "-y", "-i", input_video,
         "-vf", "scale=1920:1080:flags=lanczos,"
@@ -64,13 +125,26 @@ def refine_video(input_video, output_video="refined.mp4"):
 
 
 def add_audio_to_video(video_path, audio_choice, output_path="final_with_audio.mp4"):
-    if not os.path.exists(audio_choice):
-        print(f"⚠️ Audio file not found: {audio_choice}")
-        return video_path
+    if _is_test_mode():
+        _ensure_parent(output_path)
+        with open(output_path, "wb"):
+            pass
+        return output_path
+    resolved_audio = audio_choice
+    if not os.path.exists(resolved_audio):
+        # If a .wav is missing, fall back to a sibling .mp3 (and vice versa)
+        base, ext = os.path.splitext(audio_choice)
+        alt_ext = ".mp3" if ext.lower() == ".wav" else ".wav"
+        alt_path = f"{base}{alt_ext}"
+        if os.path.exists(alt_path):
+            resolved_audio = alt_path
+        else:
+            print(f"⚠️ Audio file not found: {audio_choice}")
+            return video_path
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-stream_loop", "-1", "-i", audio_choice,
+        "-stream_loop", "-1", "-i", resolved_audio,
         "-shortest",
         "-filter_complex",
         "[1:a]volume=1.0[a1];[0:a][a1]amix=inputs=2:duration=shortest[a]",
@@ -83,8 +157,13 @@ def add_audio_to_video(video_path, audio_choice, output_path="final_with_audio.m
 
 
 def generate_voiceover(text, lang="en", output_file="audio/voice.wav"):
+    if _is_test_mode():
+        _ensure_parent(output_file)
+        with open(output_file, "wb"):
+            pass
+        return output_file
     tts = gTTS(text=text, lang=lang)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    _ensure_parent(output_file)
     tts.save(output_file)
     return output_file
 

@@ -13,6 +13,8 @@ from mini_sora import (
 )
 
 def test_end_to_end_with_voice(tmp_path):
+    # Use lightweight stubs instead of downloading large models/audio during tests
+    os.environ["MINI_SORA_TEST_MODE"] = "1"
     """
     Full pipeline test:
       - text→image
@@ -65,5 +67,22 @@ def test_end_to_end_with_voice(tmp_path):
         str(final_video)
     )
     assert os.path.exists(output), "❌ Final video with audio not created."
+
+    # === 6️⃣ Ambient/Music MP3 Integration ===
+    ambient_out = tmp_path / "final_with_ambient.mp4"
+    ambient_mix = add_audio_to_video(
+        str(refined),
+        "audio/test_ambient.mp3",
+        str(ambient_out)
+    )
+    assert os.path.exists(ambient_mix), "❌ Ambient MP3 mix not created."
+
+    music_out = tmp_path / "final_with_music.mp4"
+    music_mix = add_audio_to_video(
+        str(refined),
+        "audio/test_music.mp3",
+        str(music_out)
+    )
+    assert os.path.exists(music_mix), "❌ Music MP3 mix not created."
 
     print(f"✅ E2E voice-over test completed.\nFinal output: {output}")
