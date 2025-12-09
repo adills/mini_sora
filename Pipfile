@@ -13,6 +13,8 @@ accelerate = "*"
 pillow = "*"
 gtts = "*"
 imageio = {extras = ["ffmpeg"], version = "*"}
+scipy = "*"
+scikit-video = "*"
 
 [dev-packages]
 pytest = "*"

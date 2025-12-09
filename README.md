@@ -48,7 +48,10 @@ brew install ffmpeg
 
 # RIFE
 git clone https://github.com/megvii-research/ECCV2022-RIFE rife
-cd rife && pip install -r requirements.txt
+cd rife # && pip install -r requirements.txt
+grep -v '^numpy' requirements.txt > /tmp/rife-reqs.txt
+pip install --no-deps -r /tmp/rife-reqs.txt
+pip install scipy scikit-video
 
 # FILM
 pip install film
@@ -69,7 +72,12 @@ brew install ffmpeg
 
 # RIFE
 git clone https://github.com/megvii-research/ECCV2022-RIFE rife
-cd rife && pip install -r requirements.txt
+cd rife # && pip install -r requirements.txt
+# create a temp requirements without numpy
+grep -v '^numpy' requirements.txt > /tmp/rife-reqs.txt
+# install deps into your pipenv env without resolving numpy
+pipenv run pip install --no-deps -r /tmp/rife-reqs.txt
+pipenv install scipy scikit-video
 
 # FILM
 pipenv install film
@@ -78,7 +86,9 @@ pipenv install film
 ### Optional (for interpretation)
 #### RIFE
 git clone https://github.com/megvii-research/ECCV2022-RIFE rife
-cd rife && pip install -r requirements.txt
+cd rife && pip install --no-deps -r requirements.txt
+- Default interpolation model: `MINI_SORA_RIFE_MODEL=4.22.lite` (set env to change). Pull the corresponding weights in your RIFE checkout under `rife/4.22.lite` (or point `MINI_SORA_RIFE_MODEL` to another model dir).
+- If your RIFE repo lives elsewhere, set `MINI_SORA_RIFE_DIR=/path/to/ECCV2022-RIFE` so interpolation can find `inference_video.py`.
 
 #### FILM
 pip install film
@@ -155,7 +165,8 @@ MINI_SORA_IMAGE_DEVICE=mps \
 MINI_SORA_VIDEO_DEVICE=cpu \
 MINI_SORA_LOW_MEMORY=1 \
 MINI_SORA_DISABLE_SAFETY=1 \
-MINI_SORA_SVD_FRAMES=8 \
+MINI_SORA_SVD_FRAMES=16 \
+MINI_SORA_SVD_FPS=6 \
 MINI_SORA_SVD_STEPS=16 \
 MINI_SORA_SVD_WIDTH=256 \
 MINI_SORA_SVD_HEIGHT=448 \
