@@ -52,6 +52,7 @@ cd rife # && pip install -r requirements.txt
 grep -v '^numpy' requirements.txt > /tmp/rife-reqs.txt
 pip install --no-deps -r /tmp/rife-reqs.txt
 pip install scipy scikit-video
+pip install moviepy
 
 # FILM
 pip install film
@@ -78,6 +79,7 @@ grep -v '^numpy' requirements.txt > /tmp/rife-reqs.txt
 # install deps into your pipenv env without resolving numpy
 pipenv run pip install --no-deps -r /tmp/rife-reqs.txt
 pipenv install scipy scikit-video
+pipenv install moviepy
 
 # FILM
 pipenv install film
@@ -89,6 +91,7 @@ git clone https://github.com/megvii-research/ECCV2022-RIFE rife
 cd rife && pip install --no-deps -r requirements.txt
 - Default interpolation model: `MINI_SORA_RIFE_MODEL=4.22.lite` (set env to change). Pull the corresponding weights in your RIFE checkout under `rife/4.22.lite` (or point `MINI_SORA_RIFE_MODEL` to another model dir).
 - If your RIFE repo lives elsewhere, set `MINI_SORA_RIFE_DIR=/path/to/ECCV2022-RIFE` so interpolation can find `inference_video.py`.
+- Weight location: by default the pipeline looks for `rife/train_log/<MINI_SORA_RIFE_MODEL>` (so `train_log/4.22.lite/`). You can also point `MINI_SORA_RIFE_MODEL` at an absolute model path if you prefer.
 
 #### FILM
 pip install film

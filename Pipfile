@@ -15,6 +15,7 @@ gtts = "*"
 imageio = {extras = ["ffmpeg"], version = "*"}
 scipy = "*"
 scikit-video = "*"
+moviepy = "*"
 
 [dev-packages]
 pytest = "*"
