@@ -182,6 +182,27 @@ def _video_has_audio(path):
         return False
 
 
+def _probe_fps(path, fallback=None):
+    try:
+        res = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=r_frame_rate",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path
+            ],
+            capture_output=True, text=True, check=True
+        )
+        rate = res.stdout.strip()
+        if "/" in rate:
+            num, den = rate.split("/")
+            num, den = float(num), float(den)
+            return num / den if den != 0 else None
+        return float(rate)
+    except Exception:
+        return fallback
+
+
 def _maybe_align_stage_devices(default_device):
     """
     If only one of the stage-specific device envs is set (and differs from default),
@@ -485,6 +506,17 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
 
 def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIFE"):
     print(f"🌀 Interpolating frames using {method}...")
+    input_video_abs = os.path.abspath(input_video)
+    output_video_abs = os.path.abspath(output_video)
+    _ensure_parent(output_video_abs)
+    # Use detected FPS to avoid RIFE attempting audio merge (we set fps explicitly)
+    fps_in = _probe_fps(input_video_abs)
+    if fps_in is None:
+        try:
+            fps_in = float(os.environ.get("MINI_SORA_SVD_FPS", 7))
+        except (TypeError, ValueError):
+            fps_in = 7.0
+    fps_out = max(1, int(round(fps_in * 2)))  # exp=1 doubles frames
     if method.upper() == "RIFE":
         rife_model = os.environ.get("MINI_SORA_RIFE_MODEL", "")
         rife_dir = os.environ.get(
@@ -513,18 +545,19 @@ def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIF
             )
         cmd = ["python", "inference_video.py", "--exp", "1",
                "--model", model_path,
-               "--video", input_video, "--output", output_video]
+               "--video", input_video_abs, "--output", output_video_abs,
+               "--fps", str(fps_out)]
         subprocess.run(cmd, check=True, cwd=rife_dir)
-        return output_video
+        return output_video_abs
     elif method.upper() == "FILM":
         cmd = ["python", "-m", "film.interpolate",
-               "--input_video", input_video,
-               "--output_video", output_video,
+               "--input_video", input_video_abs,
+               "--output_video", output_video_abs,
                "--times_to_interpolate", "1"]
     else:
         raise ValueError("Interpolation method must be 'RIFE' or 'FILM'.")
     subprocess.run(cmd, check=True)
-    return output_video
+    return output_video_abs
 
 
 def refine_video(input_video, output_video="refined.mp4"):
