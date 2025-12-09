@@ -59,6 +59,18 @@ def _env_float(name, default):
         return default
 
 
+def _even_size(val, minimum=2):
+    """Clamp to even integer to satisfy 4:2:0 pixel formats."""
+    if val is None:
+        return None
+    try:
+        v = int(val)
+    except (TypeError, ValueError):
+        return None
+    v = max(minimum, v)
+    return v if v % 2 == 0 else v - 1
+
+
 def _to_hwc_uint8(frame):
     """
     Normalize a single frame to HWC uint8 for imageio/ffmpeg.
@@ -134,6 +146,28 @@ def _normalize_frames(frames):
 
     _add(frames)
     return normalized
+
+
+def _resize_frames(frames, target_w=None, target_h=None):
+    if not target_w or not target_h:
+        return frames
+    tw, th = _even_size(target_w), _even_size(target_h)
+    resized = []
+    for f in frames:
+        img = Image.fromarray(f)
+        resized.append(np.array(img.resize((tw, th), Image.Resampling.LANCZOS)))
+    return resized
+
+
+def _resize_frames(frames, target_w=None, target_h=None):
+    if not target_w or not target_h:
+        return frames
+    tw, th = _even_size(target_w), _even_size(target_h)
+    resized = []
+    for f in frames:
+        img = Image.fromarray(f)
+        resized.append(np.array(img.resize((tw, th), Image.Resampling.LANCZOS)))
+    return resized
 
 
 def _video_has_audio(path):
@@ -218,6 +252,11 @@ def generate_image(prompt, output_path="frame0.png"):
     # Recommended if your computer has < 64 GB of RAM
     pipe_img.enable_attention_slicing()
     image = pipe_img(prompt, guidance_scale=8.0).images[0]
+    # Resize to requested dimensions if provided (default to SVD dims when set)
+    img_w = _even_size(_env_int("MINI_SORA_IMG_WIDTH", _env_int("MINI_SORA_SVD_WIDTH", None)))
+    img_h = _even_size(_env_int("MINI_SORA_IMG_HEIGHT", _env_int("MINI_SORA_SVD_HEIGHT", None)))
+    if img_w and img_h:
+        image = image.resize((img_w, img_h))
     image.save(output_path)
     return output_path
 
@@ -264,9 +303,38 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
     low_mem = _env_flag("MINI_SORA_LOW_MEMORY") or device == "cpu"
     if low_mem:
         print("⚠️ Low-memory video mode: reducing resolution/frames.")
-    width = _env_int("MINI_SORA_SVD_WIDTH", 1024 if not low_mem else 512)
-    height = _env_int("MINI_SORA_SVD_HEIGHT", 576 if not low_mem else 288)
-    init_image = Image.open(init_image_path).convert("RGB").resize((width, height))
+    base_image = Image.open(init_image_path).convert("RGB")
+    base_w, base_h = base_image.size
+
+    # Respect user-provided dims; only shrink for low_mem if not provided
+    user_w = _env_int("MINI_SORA_SVD_WIDTH", None)
+    user_h = _env_int("MINI_SORA_SVD_HEIGHT", None)
+
+    def _calc_dims(w, h):
+        if w and h:
+            return _even_size(w), _even_size(h)
+        if w and not h:
+            h_est = int(round((w / base_w) * base_h)) if base_w else w
+            return _even_size(w), _even_size(h_est)
+        if h and not w:
+            w_est = int(round((h / base_h) * base_w)) if base_h else h
+            return _even_size(w_est), _even_size(h)
+        # No user dims; start from base image size
+        return _even_size(base_w), _even_size(base_h)
+
+    width, height = _calc_dims(user_w, user_h)
+    if not user_w and not user_h:
+        # Fallback defaults when nothing provided
+        default_w = 1024 if not low_mem else 512
+        default_h = 576 if not low_mem else 288
+        width = width or _even_size(default_w)
+        height = height or _even_size(default_h)
+
+    if low_mem:
+        width = _even_size(int(width * 0.5))
+        height = _even_size(int(height * 0.5))
+
+    init_image = base_image.resize((width, height))
 
     # Lighten memory pressure when supported
     if hasattr(pipe_vid, "enable_vae_slicing"):
@@ -332,6 +400,7 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
     except Exception as exc:
         print(f"⚠️ Failed to normalize frames: type={type(frames)}, err={exc}")
         raise
+    frames = _resize_frames(frames, width, height)
     # Debug: print basic frame info to help diagnose channel/layout issues
     if frames:
         sample = frames[0]
@@ -351,8 +420,21 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
 def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIFE"):
     print(f"🌀 Interpolating frames using {method}...")
     if method.upper() == "RIFE":
-        cmd = ["python", "-m", "rife.infer", "--exp", "1",
+        rife_model = os.environ.get("MINI_SORA_RIFE_MODEL", "4.22.lite")
+        rife_dir = os.environ.get(
+            "MINI_SORA_RIFE_DIR",
+            os.path.join(os.path.dirname(__file__), "rife")
+        )
+        if not os.path.isdir(rife_dir):
+            raise RuntimeError(
+                f"RIFE directory not found at '{rife_dir}'. "
+                "Set MINI_SORA_RIFE_DIR to your RIFE checkout (ECCV2022-RIFE)."
+            )
+        cmd = ["python", "inference_video.py", "--exp", "1",
+               "--model", rife_model,
                "--video", input_video, "--output", output_video]
+        subprocess.run(cmd, check=True, cwd=rife_dir)
+        return output_video
     elif method.upper() == "FILM":
         cmd = ["python", "-m", "film.interpolate",
                "--input_video", input_video,
@@ -371,9 +453,9 @@ def refine_video(input_video, output_video="refined.mp4"):
             pass
         return output_video
 
-    # Allow overriding target dimensions for portrait/landscape output
-    target_w = os.environ.get("MINI_SORA_REFINE_WIDTH", "1920")
-    target_h = os.environ.get("MINI_SORA_REFINE_HEIGHT", "1080")
+    # Use SVD dimensions by default to keep stages aligned; optional refine override
+    target_w = _even_size(_env_int("MINI_SORA_REFINE_WIDTH", _env_int("MINI_SORA_SVD_WIDTH", 1920)))
+    target_h = _even_size(_env_int("MINI_SORA_REFINE_HEIGHT", _env_int("MINI_SORA_SVD_HEIGHT", 1080)))
     scale_filter = f"scale={target_w}:{target_h}:flags=lanczos"
 
     cmd = [
