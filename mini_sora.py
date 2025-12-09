@@ -430,8 +430,19 @@ def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIF
                 f"RIFE directory not found at '{rife_dir}'. "
                 "Set MINI_SORA_RIFE_DIR to your RIFE checkout (ECCV2022-RIFE)."
             )
+        # If the model path is not absolute, assume train_log/<model> under rife_dir
+        if os.path.isabs(rife_model):
+            model_path = rife_model
+        else:
+            model_path = os.path.join(rife_dir, "train_log", rife_model)
+        if not os.path.exists(model_path):
+            raise RuntimeError(
+                f"RIFE model path not found: {model_path}. "
+                "Place the weights under rife/train_log/<model_name> or set "
+                "MINI_SORA_RIFE_MODEL to an absolute path."
+            )
         cmd = ["python", "inference_video.py", "--exp", "1",
-               "--model", rife_model,
+               "--model", model_path,
                "--video", input_video, "--output", output_video]
         subprocess.run(cmd, check=True, cwd=rife_dir)
         return output_video
