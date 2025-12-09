@@ -11,7 +11,7 @@ except ImportError:
     DiffusionPipeline = None
 from PIL import Image
 from gtts import gTTS
-import imageio, subprocess, os, inspect, sys
+import imageio, subprocess, os, inspect, sys, argparse
 import numpy as np
 
 
@@ -209,6 +209,72 @@ def _maybe_align_stage_devices(default_device):
         _prompt_set("MINI_SORA_VIDEO_DEVICE", img_dev)
     elif vid_dev and not img_dev and vid_dev != default_device:
         _prompt_set("MINI_SORA_IMAGE_DEVICE", vid_dev)
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Mini-Sora pipeline")
+    parser.add_argument("--device", help="Global device override (cpu/mps/cuda)")
+    parser.add_argument("--device-image", help="Image stage device (cpu/mps/cuda)")
+    parser.add_argument("--device-video", help="Video stage device (cpu/mps/cuda)")
+    parser.add_argument("--low-memory", dest="low_memory", action="store_true", help="Enable low-memory mode")
+    parser.add_argument("--no-low-memory", dest="low_memory", action="store_false", help="Disable low-memory mode")
+    parser.set_defaults(low_memory=None)
+    parser.add_argument("--disable-safety", dest="disable_safety", action="store_true", help="Disable SD safety checker")
+    parser.add_argument("--enable-safety", dest="disable_safety", action="store_false", help="Enable SD safety checker")
+    parser.set_defaults(disable_safety=None)
+    parser.add_argument("--sd-model", help="Stable Diffusion model id or path")
+    parser.add_argument("--video-model", help="Video model id or path")
+    parser.add_argument("--svd-width", type=int, help="SVD resolution width")
+    parser.add_argument("--svd-height", type=int, help="SVD resolution height")
+    parser.add_argument("--svd-frames", type=int, help="SVD frames")
+    parser.add_argument("--svd-steps", type=int, help="SVD inference steps")
+    parser.add_argument("--svd-fps", type=int, help="Output FPS for SVD video")
+    parser.add_argument("--svd-decode-chunk", type=int, help="SVD decode chunk size")
+    parser.add_argument("--rife-dir", help="Path to Practical-RIFE checkout")
+    parser.add_argument("--rife-model", help="RIFE model folder (relative or absolute)")
+    parser.add_argument("--refine-width", type=int, help="Refine output width")
+    parser.add_argument("--refine-height", type=int, help="Refine output height")
+    parser.add_argument("--test-mode", dest="test_mode", action="store_true", help="Enable MINI_SORA_TEST_MODE")
+    parser.add_argument("--no-test-mode", dest="test_mode", action="store_false", help="Disable MINI_SORA_TEST_MODE")
+    parser.set_defaults(test_mode=None)
+    parser.add_argument("--interp-method", choices=["RIFE", "FILM", "NONE"], help="Frame interpolation choice")
+    parser.add_argument("--audio-option", choices=["0", "1", "2", "3"], help="Audio selection: 0=None,1=Ambient,2=Music,3=Voice")
+    parser.add_argument("--voice-text", help="Voice-over text when audio option is 3")
+    parser.add_argument("--voice-lang", help="Voice-over language code (default en)")
+    return parser.parse_args()
+
+
+def _set_env(name, value):
+    if value is not None:
+        os.environ[name] = str(value)
+
+
+def _apply_args_to_env(args):
+    _set_env("MINI_SORA_DEVICE", args.device)
+    _set_env("MINI_SORA_IMAGE_DEVICE", args.device_image)
+    _set_env("MINI_SORA_VIDEO_DEVICE", args.device_video)
+    if args.low_memory is not None:
+        _set_env("MINI_SORA_LOW_MEMORY", "1" if args.low_memory else "0")
+    if args.disable_safety is not None:
+        _set_env("MINI_SORA_DISABLE_SAFETY", "1" if args.disable_safety else "0")
+    if args.test_mode is not None:
+        _set_env("MINI_SORA_TEST_MODE", "1" if args.test_mode else "0")
+    _set_env("MINI_SORA_SD_MODEL", args.sd_model)
+    _set_env("MINI_SORA_VIDEO_MODEL", args.video_model)
+    _set_env("MINI_SORA_SVD_WIDTH", args.svd_width)
+    _set_env("MINI_SORA_SVD_HEIGHT", args.svd_height)
+    _set_env("MINI_SORA_SVD_FRAMES", args.svd_frames)
+    _set_env("MINI_SORA_SVD_STEPS", args.svd_steps)
+    _set_env("MINI_SORA_SVD_FPS", args.svd_fps)
+    _set_env("MINI_SORA_SVD_DECODE_CHUNK", args.svd_decode_chunk)
+    _set_env("MINI_SORA_RIFE_DIR", args.rife_dir)
+    _set_env("MINI_SORA_RIFE_MODEL", args.rife_model)
+    _set_env("MINI_SORA_REFINE_WIDTH", args.refine_width)
+    _set_env("MINI_SORA_REFINE_HEIGHT", args.refine_height)
+    _set_env("MINI_SORA_INTERP_METHOD", args.interp_method)
+    _set_env("MINI_SORA_AUDIO_OPTION", args.audio_option)
+    _set_env("MINI_SORA_VOICE_TEXT", args.voice_text)
+    _set_env("MINI_SORA_VOICE_LANG", args.voice_lang)
 
 
 def _is_test_mode():
@@ -420,25 +486,29 @@ def generate_video(init_image_path, prompt, output_video="raw_output.mp4"):
 def interpolate_frames(input_video, output_video="interpolated.mp4", method="RIFE"):
     print(f"🌀 Interpolating frames using {method}...")
     if method.upper() == "RIFE":
-        rife_model = os.environ.get("MINI_SORA_RIFE_MODEL", "4.22.lite")
+        rife_model = os.environ.get("MINI_SORA_RIFE_MODEL", "")
         rife_dir = os.environ.get(
             "MINI_SORA_RIFE_DIR",
-            os.path.join(os.path.dirname(__file__), "rife")
+            os.path.join(os.path.dirname(__file__), "practical_rife")
         )
         if not os.path.isdir(rife_dir):
             raise RuntimeError(
                 f"RIFE directory not found at '{rife_dir}'. "
-                "Set MINI_SORA_RIFE_DIR to your RIFE checkout (ECCV2022-RIFE)."
+                "Set MINI_SORA_RIFE_DIR to your RIFE checkout (PRACTICAL-RIFE)."
             )
         # If the model path is not absolute, assume train_log/<model> under rife_dir
-        if os.path.isabs(rife_model):
-            model_path = rife_model
+        if rife_model:
+            if os.path.isabs(rife_model):
+                model_path = rife_model
+            else:
+                model_path = os.path.join(rife_dir, "train_log", rife_model)
         else:
-            model_path = os.path.join(rife_dir, "train_log", rife_model)
+            # Default to train_log root
+            model_path = os.path.join(rife_dir, "train_log")
         if not os.path.exists(model_path):
             raise RuntimeError(
                 f"RIFE model path not found: {model_path}. "
-                "Place the weights under rife/train_log/<model_name> or set "
+                "Place the weights under practical_rife/train_log/ (or a subfolder) or set "
                 "MINI_SORA_RIFE_MODEL to an absolute path."
             )
         cmd = ["python", "inference_video.py", "--exp", "1",
@@ -532,6 +602,8 @@ def generate_voiceover(text, lang="en", output_file="audio/voice.wav"):
 
 
 if __name__ == "__main__":
+    args = _parse_args()
+    _apply_args_to_env(args)
     default_dev = _get_device()
     _maybe_align_stage_devices(default_dev)
     os.makedirs("outputs", exist_ok=True)
@@ -548,21 +620,28 @@ if __name__ == "__main__":
     img_path = generate_image(text_prompt, "outputs/frame0.png")
     vid_path = generate_video(img_path, motion_prompt, "outputs/raw_output.mp4")
 
-    interp_method = input("Choose interpolation method (RIFE / FILM / none): ").strip().upper()
+    # Interpolation choice: env/arg override, else prompt
+    interp_method = os.environ.get("MINI_SORA_INTERP_METHOD", "").upper()
+    if interp_method not in ["RIFE", "FILM", "NONE"]:
+        interp_method = input("Choose interpolation method (RIFE / FILM / none): ").strip().upper()
     if interp_method in ["RIFE", "FILM"]:
         vid_path = interpolate_frames(vid_path, f"outputs/interpolated_{interp_method}.mp4", interp_method)
 
     refined_path = refine_video(vid_path, "outputs/refined.mp4")
 
     print("\nAudio options:\n 1 = Ambient\n 2 = Music\n 3 = Auto Voice-over (gTTS)\n 0 = None")
-    choice = input("Select audio option: ").strip()
+    choice = os.environ.get("MINI_SORA_AUDIO_OPTION", "").strip()
+    if choice not in {"0", "1", "2", "3"}:
+        choice = input("Select audio option: ").strip()
     audio_map = {"1": "audio/ambient.wav", "2": "audio/music.mp3"}
 
     final_path = refined_path
     if choice == "3":
-        narration = input("Enter your voice-over text: ").strip() or \
-                    "A calm morning by the lake. She splashes her face and walks toward the shore."
-        lang = input("Enter language code (default 'en'): ").strip() or "en"
+        narration = os.environ.get("MINI_SORA_VOICE_TEXT", "").strip()
+        if not narration:
+            narration = input("Enter your voice-over text: ").strip() or \
+                        "A calm morning by the lake. She splashes her face and walks toward the shore."
+        lang = os.environ.get("MINI_SORA_VOICE_LANG", "").strip() or "en"
         voice_path = generate_voiceover(narration, lang, "audio/voice.wav")
         final_path = add_audio_to_video(refined_path, voice_path, "outputs/final_with_voice.mp4")
     elif choice in audio_map:

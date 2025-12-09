@@ -71,15 +71,11 @@ pipenv install diffusers transformers accelerate pillow "imageio[ffmpeg]" gTTS #
 pipenv install --dev pytest
 brew install ffmpeg
 
-# RIFE
-git clone https://github.com/megvii-research/ECCV2022-RIFE rife
-cd rife # && pip install -r requirements.txt
-# create a temp requirements without numpy
-grep -v '^numpy' requirements.txt > /tmp/rife-reqs.txt
-# install deps into your pipenv env without resolving numpy
-pipenv run pip install --no-deps -r /tmp/rife-reqs.txt
-pipenv install scipy scikit-video
-pipenv install moviepy
+# RIFE (Practical-RIFE for 4.22.lite)
+git clone https://github.com/hzwer/Practical-RIFE practical_rife
+cd practical_rife
+pipenv run pip install --no-deps -r requirements.txt
+pipenv install scipy scikit-video moviepy
 
 # FILM
 pipenv install film
@@ -87,11 +83,10 @@ pipenv install film
 
 ### Optional (for interpretation)
 #### RIFE
-git clone https://github.com/megvii-research/ECCV2022-RIFE rife
-cd rife && pip install --no-deps -r requirements.txt
-- Default interpolation model: `MINI_SORA_RIFE_MODEL=4.22.lite` (set env to change). Pull the corresponding weights in your RIFE checkout under `rife/4.22.lite` (or point `MINI_SORA_RIFE_MODEL` to another model dir).
-- If your RIFE repo lives elsewhere, set `MINI_SORA_RIFE_DIR=/path/to/ECCV2022-RIFE` so interpolation can find `inference_video.py`.
-- Weight location: by default the pipeline looks for `rife/train_log/<MINI_SORA_RIFE_MODEL>` (so `train_log/4.22.lite/`). You can also point `MINI_SORA_RIFE_MODEL` at an absolute model path if you prefer.
+git clone https://github.com/hzwer/Practical-RIFE practical_rife
+cd practical_rife && pip install --no-deps -r requirements.txt
+- Default interpolation model path: `<RIFE_DIR>/train_log` (if `MINI_SORA_RIFE_MODEL` is unset). If you use a subfolder (e.g., `4.22.lite`), set `MINI_SORA_RIFE_MODEL=4.22.lite` or point it to an absolute path.
+- If your RIFE repo lives elsewhere, set `MINI_SORA_RIFE_DIR=/path/to/practical_rife` so interpolation can find `inference_video.py`.
 
 #### FILM
 pip install film
@@ -105,7 +100,7 @@ pip install film
 - For a quick smoke test without downloads, set `MINI_SORA_TEST_MODE=1` to stub out the heavy stages.
 
 ## Usage
-Run tests:
+### Run tests:
 ```bash
 pytest -s tests/test_pipeline_e2e.py
 ```
@@ -117,13 +112,17 @@ The -s flag lets you see printed status lines such as:
 Final output: /tmp/pytest-.../final_with_voice.mp4
 ```
 
-Run the main pipeline interactively:
+### Run the main pipeline interactively:
 
 ```bash
 python mini_sora.py
+# You can also pass CLI flags instead of env vars, e.g.:
+# python mini_sora.py --device mps --device-video cpu --low-memory --disable-safety \
+#   --svd-width 256 --svd-height 448 --svd-frames 16 --svd-steps 16 --svd-fps 6 \
+#   --svd-decode-chunk 3 --rife-dir /path/to/practical_rife --rife-model 4.22.lite
 ```
 
-### Input during run
+**Input during run**
 You’ll be prompted to:
 	1.	Choose an interpolation method (RIFE / FILM / none).
 	2.	Select audio option: Ambient / Music / Auto Voice-over / None.
@@ -149,7 +148,7 @@ Note: Stable Video Diffusion is image-conditioned, so the “motion prompt” te
 - To force CPU instead of MPS/GPU (very slow, but safer for memory): `MINI_SORA_DEVICE=cpu`.
 - To bypass the Stable Diffusion safety checker (e.g., if you keep getting black images), set `MINI_SORA_DISABLE_SAFETY=1`.
 
-**Example Mac MPS minimum low memory CLI**
+### Example Mac MPS minimum low memory CLI
 ```bash
 MINI_SORA_DEVICE=mps \
 MINI_SORA_LOW_MEMORY=1 \
@@ -160,9 +159,16 @@ MINI_SORA_SVD_WIDTH=320 \
 MINI_SORA_SVD_HEIGHT=180 \
 MINI_SORA_SVD_DECODE_CHUNK=1 \
 python3 mini_sora.py
+
+# Same via CLI flags:
+python3 mini_sora.py \
+  --device mps --low-memory --disable-safety \
+  --svd-frames 4 --svd-steps 8 --svd-width 320 --svd-height 180 \
+  --svd-decode-chunk 1 \
+  --interp-method RIFE --audio-option 3 --voice-text "A calm morning by the lake." --voice-lang en
 ```
 
-**Example of a mixed MPS and CPU process**
+### Example of a mixed MPS and CPU process
 ```bash
 MINI_SORA_IMAGE_DEVICE=mps \
 MINI_SORA_VIDEO_DEVICE=cpu \
@@ -175,6 +181,13 @@ MINI_SORA_SVD_WIDTH=256 \
 MINI_SORA_SVD_HEIGHT=448 \
 MINI_SORA_SVD_DECODE_CHUNK=3 \
 python3 mini_sora.py
+
+# Same via CLI flags but with known answers to method, options, voice:
+python3 mini_sora.py \
+  --device-image mps --device-video cpu --low-memory --disable-safety \
+  --svd-frames 16 --svd-fps 6 --svd-steps 16 \
+  --svd-width 256 --svd-height 448 --svd-decode-chunk 3 \
+  --interp-method RIFE --audio-option 3 --voice-text "A calm morning by the lake." --voice-lang en
 ```
 
 ### Output
